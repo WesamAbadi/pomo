@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>25:00 — work</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23000'/><text x='50%25' y='54%25' dominant-baseline='middle' text-anchor='middle' font-family='monospace' font-weight='bold' font-size='18' fill='%23fff'>25</text></svg>">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #000;
+    color: #fff;
+    font-family: monospace;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2rem;
+    user-select: none;
+    transition: background 3s ease;
+  }
+  body.break { background: #051a0a; }
+  #mode {
+    font-size: 0.75rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #555;
+  }
+  #time {
+    font-size: clamp(4rem, 20vw, 8rem);
+    font-weight: bold;
+    letter-spacing: -2px;
+    cursor: pointer;
+    position: relative;
+  }
+  #time:after {
+    content: 'hold to edit';
+    position: absolute;
+    bottom: -1.4rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    color: #333;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  #time:hover:after { opacity: 1; }
+  #controls { display: flex; gap: 2rem; }
+  button {
+    background: none;
+    border: none;
+    color: #555;
+    font-family: monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 0.5rem;
+  }
+  button:hover { color: #fff; }
+  #start { color: #fff; font-size: 1rem; }
+
+  /* edit overlay */
+  #edit {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: #000;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    z-index: 10;
+  }
+  #edit.show { display: flex; }
+  #edit h2 {
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #555;
+    margin-bottom: 0.5rem;
+  }
+  .edit-row {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    width: 200px;
+    justify-content: space-between;
+  }
+  .edit-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    color: #555;
+    text-transform: uppercase;
+    width: 80px;
+  }
+  .edit-row input {
+    background: none;
+    border: none;
+    border-bottom: 1px solid #333;
+    color: #fff;
+    font-family: monospace;
+    font-size: 1.2rem;
+    width: 60px;
+    text-align: center;
+    outline: none;
+    padding: 0.2rem 0;
+  }
+  .edit-row input:focus { border-bottom-color: #fff; }
+  #edit-save {
+    margin-top: 1rem;
+    color: #fff;
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+  }
+</style>
+</head>
+<body>
+
+<div id="mode">work</div>
+<div id="time">25:00</div>
+<div id="controls">
+  <button onclick="reset()">reset</button>
+  <button id="start" onclick="toggle()">▶</button>
+  <button onclick="nextMode()">skip</button>
+</div>
+
+<!-- edit overlay -->
+<div id="edit">
+  <h2>durations (min)</h2>
+  <div class="edit-row"><span class="edit-label">work</span><input id="e-work" type="number" min="1" max="99" value="25"></div>
+  <div class="edit-row"><span class="edit-label">short break</span><input id="e-short" type="number" min="1" max="99" value="5"></div>
+  <div class="edit-row"><span class="edit-label">long break</span><input id="e-long" type="number" min="1" max="99" value="15"></div>
+  <button id="edit-save" onclick="saveEdit()">save</button>
+</div>
+
+<script>
+let durations = { work: 25, short: 5, long: 15 };
+
+const sequence = ['work','short','work','short','work','short','work','long'];
+const labels   = { work: 'work', short: 'short break', long: 'long break' };
+
+let mi = 0, secs = durations.work * 60, running = false, iv;
+let pressTimer = null;
+
+const timeEl  = document.getElementById('time');
+const modeEl  = document.getElementById('mode');
+const startBtn = document.getElementById('start');
+const editEl  = document.getElementById('edit');
+
+function mins() { return durations[sequence[mi]]; }
+
+function beep() {
+  const ctx = new AudioContext();
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.3, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+  g.connect(ctx.destination);
+  [880, 1100].forEach((freq, i) => {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    o.connect(g);
+    o.start(ctx.currentTime + i * 0.15);
+    o.stop(ctx.currentTime + 0.8);
+  });
+}
+
+function fmt(s) {
+  return `${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;
+}
+
+function render() {
+  const t = fmt(secs);
+  timeEl.textContent = t;
+  const m = sequence[mi];
+  modeEl.textContent = labels[m];
+  document.title = `${t} — ${labels[m]}`;
+  document.body.classList.toggle('break', m !== 'work');
+}
+
+function toggle() {
+  if (running) {
+    clearInterval(iv); running = false; startBtn.textContent = '▶';
+  } else {
+    running = true; startBtn.textContent = '⏸';
+    iv = setInterval(() => { if (--secs < 0) nextMode(); else render(); }, 1000);
+  }
+}
+
+function reset() {
+  clearInterval(iv); running = false; startBtn.textContent = '▶';
+  secs = mins() * 60;
+  render();
+}
+
+function nextMode() {
+  beep();
+  mi = (mi + 1) % sequence.length;
+  reset();
+}
+
+// long press to edit
+timeEl.addEventListener('mousedown',  () => pressTimer = setTimeout(openEdit, 600));
+timeEl.addEventListener('touchstart', () => pressTimer = setTimeout(openEdit, 600), { passive: true });
+timeEl.addEventListener('mouseup',    () => clearTimeout(pressTimer));
+timeEl.addEventListener('touchend',   () => clearTimeout(pressTimer));
+timeEl.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+
+function openEdit() {
+  document.getElementById('e-work').value  = durations.work;
+  document.getElementById('e-short').value = durations.short;
+  document.getElementById('e-long').value  = durations.long;
+  editEl.classList.add('show');
+}
+
+function saveEdit() {
+  durations.work  = parseInt(document.getElementById('e-work').value)  || 25;
+  durations.short = parseInt(document.getElementById('e-short').value) || 5;
+  durations.long  = parseInt(document.getElementById('e-long').value)  || 15;
+  editEl.classList.remove('show');
+  reset();
+}
+
+// spacebar
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
+    e.preventDefault();
+    toggle();
+  }
+  if (e.code === 'Escape') editEl.classList.remove('show');
+});
+
+render();
+</script>
+</body>
+</html>
